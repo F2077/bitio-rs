@@ -1,6 +1,6 @@
 use crate::byte_order::ByteOrder;
 use crate::traits::BitWrite;
-use std::io::Write;
+use std::io::{Error, ErrorKind, Result, Write};
 
 pub struct BitWriter<W: Write> {
     byte_order: ByteOrder,
@@ -25,7 +25,7 @@ impl<W: Write> BitWriter<W> {
     }
 
     /// 刷新缓冲区中完整的字节（8位的整数倍）
-    fn flush_complete_bytes(&mut self) -> std::io::Result<()> {
+    fn flush_complete_bytes(&mut self) -> Result<()> {
         while self.bits_in_buffer >= 8 {
             let byte = match self.byte_order {
                 ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8,
@@ -49,7 +49,7 @@ impl<W: Write> BitWriter<W> {
     }
 
     /// 强制刷新所有位（包括不足8位的部分）
-    fn flush_partial_byte(&mut self) -> std::io::Result<()> {
+    fn flush_partial_byte(&mut self) -> Result<()> {
         if self.bits_in_buffer > 0 {
             let byte = match self.byte_order {
                 ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8,
@@ -64,7 +64,7 @@ impl<W: Write> BitWriter<W> {
 }
 
 impl<W: Write> Write for BitWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
         self.flush_complete_bytes()?;
 
         if self.bits_in_buffer == 0 {
@@ -85,7 +85,7 @@ impl<W: Write> Write for BitWriter<W> {
                     }
                 }
                 processed += 1;
-                k += 8; // actually k local, but recalc outside
+                k += 8;
             }
             self.bits_in_buffer += 8 * processed;
 
@@ -100,14 +100,25 @@ impl<W: Write> Write for BitWriter<W> {
         }
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> Result<()> {
         self.flush_partial_byte()?;
         self.inner.flush()
     }
 }
 
 impl<W: Write> BitWrite for BitWriter<W> {
-    fn write_bits(&mut self, value: u64, n: usize) -> std::io::Result<()> {
+    fn write_bits(&mut self, value: u64, n: usize) -> Result<()> {
+        // 限制 n 的范围在 1..=64
+        if n == 0 {
+            return Ok(());
+        }
+        if n > 64 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!("Cannot write {} bits, maximum is 64", n),
+            ));
+        }
+
         let mask = if n == 64 { u64::MAX } else { (1u64 << n) - 1 };
         let mut remaining = n;
         let mut val = value & mask;
@@ -120,7 +131,7 @@ impl<W: Write> BitWrite for BitWriter<W> {
 
             match self.byte_order {
                 ByteOrder::BigEndian => {
-                    self.bits_buffer |= to_insert_val << (64 - self.bits_in_buffer - to_insert);
+                    self.bits_buffer |= to_insert_val << (available - to_insert);
                 }
                 ByteOrder::LittleEndian => {
                     self.bits_buffer |= to_insert_val << self.bits_in_buffer;
@@ -129,11 +140,9 @@ impl<W: Write> BitWrite for BitWriter<W> {
 
             self.bits_in_buffer += to_insert;
             remaining -= to_insert;
-            val = if shift == 0 {
-                0
-            } else {
-                val & ((1u64 << shift) - 1)
-            };
+            if shift > 0 {
+                val &= (1u64 << shift) - 1;
+            }
 
             if self.bits_in_buffer >= 8 || remaining == 0 {
                 self.flush_complete_bytes()?;
