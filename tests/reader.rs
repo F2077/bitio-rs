@@ -46,6 +46,45 @@ mod tests {
     }
 
     #[test]
+    fn test_big_endian_cross_bytes_read() {
+        let data = [
+            0b0000_0001,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1100_1100,
+            0b1100_1100,
+            0b0000_0001,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1100_1100,
+            0b1100_1100,
+            0b0000_0001,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1100_1100,
+            0b1100_1100,
+        ]; // 字节0: 0x01, 字节1: 0x80
+        let mut reader = BitReader::with_byte_order(ByteOrder::BigEndian, Cursor::new(data));
+        assert_eq!(
+            reader.read_bits(64).unwrap(),
+            0b00000001_10000000_10000000_10000000_10000000_10000000_11001100_11001100
+        ); // 字节0的位0
+        assert_eq!(reader.read_bits(8).unwrap(), 0b0000_0001);
+        assert_eq!(reader.read_bits(1).unwrap(), 0b1);
+        assert_eq!(reader.read_bits(1).unwrap(), 0b0);
+        assert_eq!(reader.read_bits(1).unwrap(), 0b0);
+    }
+
+    #[test]
     fn test_peek_bits() {
         let data = [0b1100_1111];
         let mut reader = BitReader::new(Cursor::new(data));

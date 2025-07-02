@@ -16,3 +16,7 @@ pub trait BitPeek {
     /// Peeks at the next bit (return as bool) without consuming
     fn peek_bool(&mut self) -> std::io::Result<bool>;
 }
+
+pub trait BitWrite {
+    fn write_bits(&mut self, value: u64, n: usize) -> std::io::Result<()>;
+}

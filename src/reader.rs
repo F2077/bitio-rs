@@ -9,8 +9,8 @@ pub struct BitReader<R: Read> {
     byte_order: ByteOrder,
     inner: BufReader<R>,
 
-    bits_buffer: u64, // rust 中并没有表达 "一系列比特" 的具名数据结构，但是事实上 u64 就可以表达一系列比特
-    bits_available: usize, // 当前 bits_buffer 中持有的比特数
+    bits_buffer: u64, // 比特缓冲区：rust 中并没有表达 "一系列比特" 的具名数据结构，但是事实上 u64 就可以表达一系列比特
+    bits_in_buffer: usize, // 当前比特缓冲区中持有的比特数
 }
 
 impl<R: Read> BitReader<R> {
@@ -20,17 +20,17 @@ impl<R: Read> BitReader<R> {
 
     pub fn with_byte_order(byte_order: ByteOrder, inner: R) -> Self {
         Self {
-            byte_order: byte_order,
+            byte_order,
             inner: BufReader::new(inner),
             bits_buffer: 0,
-            bits_available: 0,
+            bits_in_buffer: 0,
         }
     }
 
     fn put_into_bits_buffer(&mut self, n: usize) -> std::io::Result<()> {
-        let bits_needed = n.saturating_sub(self.bits_available); // 使用 saturating_sub 防止下溢
+        let bits_needed = n.saturating_sub(self.bits_in_buffer); // 使用 saturating_sub 防止下溢
         let mut bytes_needed = (bits_needed + 7) / 8; // 这是一种常见的 向上取整除法技巧（Ceiling Division Trick），用于计算容纳指定位数所需的最小字节数（当`bits_needed`不是8的倍数时，加上7就会使得总和至少达到下一个8的倍数，从而在除以8时得到正确地向上取整的结果）
-        let max_bytes_needed = (64 - self.bits_available) / 8;
+        let max_bytes_needed = (64 - self.bits_in_buffer) / 8;
         if bytes_needed > max_bytes_needed {
             bytes_needed = max_bytes_needed;
         }
@@ -48,20 +48,20 @@ impl<R: Read> BitReader<R> {
                     ByteOrder::BigEndian => {
                         // 大端序的低位字节存储在高地址，高位字节存储在低地址
                         // 大端序读取时，新读到数据（高地址数据）总是放置在比特缓冲区剩余空间的最低位（最右边）
-                        let s = 64u32 - 8u32 - self.bits_available as u32; // shift = 64 - 8 - available_bits
+                        let s = 64u32 - 8u32 - self.bits_in_buffer as u32; // shift = 64 - 8 - available_bits
                         s
                     }
                     ByteOrder::LittleEndian => {
                         // 小端序的低位字节存储在低地址，高位字节存储在高地址
                         // 小端序读取时，新读到数据（高地址数据）总是要放置在比特缓冲区的最高位（最左边）
-                        let s = self.bits_available as u32;
+                        let s = self.bits_in_buffer as u32;
                         s
                     }
                 };
                 // 将新读到数据（高地址数据）左移 shift 位，然后与比特缓冲区进行或运算，这样就是将新数据放到了比特缓冲区的最高位（最左边）
                 self.bits_buffer |= u64::from(b).wrapping_shl(shift);
                 // 更新比特缓冲区可用比特数
-                self.bits_available = (self.bits_available + 8).min(64);
+                self.bits_in_buffer = (self.bits_in_buffer + 8).min(64);
             }
         }
         Ok(())
@@ -95,7 +95,7 @@ impl<R: Read> BitReader<R> {
                 }
             }
 
-            self.bits_available -= n;
+            self.bits_in_buffer -= n;
         }
         Ok(bit_value)
     }

@@ -5,3 +5,4 @@ pub mod traits;
 
 pub mod fast;
 pub mod reader;
+pub mod writer;
