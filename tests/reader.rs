@@ -262,4 +262,50 @@ mod tests {
         let mut reader = BulkBitReader::new(Cursor::new(data));
         assert!(reader.read_bool().is_err());
     }
+
+    // --------------- Mixed byte/bit read tests --------------- //
+
+    #[test]
+    fn test_byte_then_bit() {
+        let data = vec![0xAA, 0b10110011, 0xFF];
+        let mut reader = BitReader::new(Cursor::new(data));
+        // Read one full byte
+        let mut byte = [0u8; 1];
+        assert_eq!(reader.read(&mut byte).unwrap(), 1);
+        assert_eq!(byte[0], 0xAA);
+        // Now read 4 bits from next byte
+        assert_eq!(reader.read_bits(4).unwrap(), 0b1011);
+        // And then remaining 4 bits
+        assert_eq!(reader.read_bits(4).unwrap(), 0b0011);
+        // Then next aligned byte
+        let mut b2 = [0u8; 1];
+        assert_eq!(reader.read(&mut b2).unwrap(), 1);
+        assert_eq!(b2[0], 0xFF);
+    }
+
+    #[test]
+    fn test_bit_then_byte_then_bit() {
+        let data = vec![0b11110000, 0xBB, 0b00001111];
+        let mut reader = BitReader::new(Cursor::new(data));
+        // Read 4 bits
+        assert_eq!(reader.read_bits(4).unwrap(), 0b1111);
+        // Align and read next byte
+        let mut buf = [0u8; 1];
+        assert_eq!(reader.read(&mut buf).unwrap(), 1);
+        assert_eq!(buf[0], 0xBB);
+        // Then read final 4 bits
+        assert_eq!(reader.read_bits(4).unwrap(), 0b0000);
+    }
+
+    #[test]
+    fn test_multiple_aligns_do_not_consume_extra() {
+        let data = vec![0xCC, 0xDD];
+        let mut reader = BitReader::new(Cursor::new(data));
+        // Align twice consecutively
+        let mut buf = [0u8; 2];
+        assert_eq!(reader.read(&mut buf).unwrap(), 2);
+        // Further align should read EOF (0 bytes)
+        let mut buf2 = [0u8; 1];
+        assert_eq!(reader.read(&mut buf2).unwrap(), 0);
+    }
 }

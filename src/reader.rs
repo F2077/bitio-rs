@@ -100,7 +100,13 @@ impl<R: Read> BitReader<R> {
         Ok(bit_value)
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    /// Read raw bytes: 自动对齐到下一个字节边界，丢弃所有剩余位
+    pub fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // 如果缓冲区还有剩余比特，则丢弃
+        if self.bits_in_buffer > 0 {
+            self.bits_buffer = 0;
+            self.bits_in_buffer = 0;
+        }
         self.inner.read(buf)
     }
 }
