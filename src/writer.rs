@@ -28,13 +28,15 @@ impl<W: Write> BitWriter<W> {
     fn flush_complete_bytes(&mut self) -> std::io::Result<()> {
         while self.bits_in_buffer >= 8 {
             let byte = match self.byte_order {
-                ByteOrder::BigEndian => (self.bits_buffer >> (self.bits_in_buffer - 8)) as u8,
+                ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8,
                 ByteOrder::LittleEndian => self.bits_buffer as u8,
             };
             self.inner.write_all(&[byte])?;
 
             match self.byte_order {
                 ByteOrder::BigEndian => {
+                    // 移除最高的字节
+                    self.bits_buffer <<= 8;
                     self.bits_in_buffer -= 8;
                 }
                 ByteOrder::LittleEndian => {
@@ -50,7 +52,7 @@ impl<W: Write> BitWriter<W> {
     fn flush_partial_byte(&mut self) -> std::io::Result<()> {
         if self.bits_in_buffer > 0 {
             let byte = match self.byte_order {
-                ByteOrder::BigEndian => (self.bits_buffer >> (self.bits_in_buffer - 8)) as u8,
+                ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8,
                 ByteOrder::LittleEndian => self.bits_buffer as u8,
             };
             self.inner.write_all(&[byte])?;
@@ -61,45 +63,41 @@ impl<W: Write> BitWriter<W> {
     }
 }
 
+// impl<W: Write> Drop for BitWriter<W> {
+//     fn drop(&mut self) {
+//         let _ = self.flush();
+//     }
+// }
+
 impl<W: Write> Write for BitWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        // 先刷新缓冲区中的完整字节
         self.flush_complete_bytes()?;
 
         if self.bits_in_buffer == 0 {
-            // 缓冲区为空时直接批量写入
             self.inner.write(buf)
         } else {
-            // 批量处理字节：每次处理多个字节直到缓冲区接近满
             let mut processed = 0;
-            let k = self.bits_in_buffer; // 当前缓冲区中的位数
-            let free_bits = 64 - k; // 剩余可用位数
-
-            // 计算能处理的完整字节数（至少处理1个字节）
+            let mut k = self.bits_in_buffer;
+            let free_bits = 64 - k;
             let bytes_to_process = (free_bits / 8).min(buf.len());
 
-            // 批量处理字节
             for &byte in &buf[..bytes_to_process] {
                 match self.byte_order {
                     ByteOrder::BigEndian => {
-                        self.bits_buffer |= (byte as u64) << (free_bits - 8 * (processed + 1));
+                        self.bits_buffer |= (byte as u64) << (56 - k);
                     }
                     ByteOrder::LittleEndian => {
-                        self.bits_buffer |= (byte as u64) << (k + 8 * processed);
+                        self.bits_buffer |= (byte as u64) << k;
                     }
                 }
                 processed += 1;
+                k += 8; // actually k local, but recalc outside
             }
-
-            // 更新缓冲区计数
             self.bits_in_buffer += 8 * processed;
 
-            // 刷新完整字节（可能产生多个完整字节）
             self.flush_complete_bytes()?;
 
-            // 处理剩余字节
             if processed < buf.len() {
-                // 剩余字节直接写入（因为缓冲区现在为空）
                 self.inner.write_all(&buf[processed..])?;
                 processed = buf.len();
             }
@@ -116,10 +114,9 @@ impl<W: Write> Write for BitWriter<W> {
 
 impl<W: Write> BitWrite for BitWriter<W> {
     fn write_bits(&mut self, value: u64, n: usize) -> std::io::Result<()> {
-        let mask = if n == 64 { u64::MAX } else { (1 << n) - 1 };
-        let actual_value = value & mask;
+        let mask = if n == 64 { u64::MAX } else { (1u64 << n) - 1 };
         let mut remaining = n;
-        let mut val = actual_value;
+        let mut val = value & mask;
 
         while remaining > 0 {
             let available = 64 - self.bits_in_buffer;
@@ -129,7 +126,8 @@ impl<W: Write> BitWrite for BitWriter<W> {
 
             match self.byte_order {
                 ByteOrder::BigEndian => {
-                    self.bits_buffer |= to_insert_val << (available - to_insert);
+                    // Fixed shift calculation for BigEndian
+                    self.bits_buffer |= to_insert_val << (64 - self.bits_in_buffer - to_insert);
                 }
                 ByteOrder::LittleEndian => {
                     self.bits_buffer |= to_insert_val << self.bits_in_buffer;
@@ -138,10 +136,13 @@ impl<W: Write> BitWrite for BitWriter<W> {
 
             self.bits_in_buffer += to_insert;
             remaining -= to_insert;
-            val &= (1 << shift) - 1; // 清除已处理的高位
+            val = if shift == 0 {
+                0
+            } else {
+                val & ((1u64 << shift) - 1)
+            };
 
-            // 只在缓冲区满或需要刷新时才处理
-            if self.bits_in_buffer == 64 || remaining == 0 {
+            if self.bits_in_buffer >= 8 || remaining == 0 {
                 self.flush_complete_bytes()?;
             }
         }
