@@ -63,12 +63,6 @@ impl<W: Write> BitWriter<W> {
     }
 }
 
-// impl<W: Write> Drop for BitWriter<W> {
-//     fn drop(&mut self) {
-//         let _ = self.flush();
-//     }
-// }
-
 impl<W: Write> Write for BitWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.flush_complete_bytes()?;
@@ -126,7 +120,6 @@ impl<W: Write> BitWrite for BitWriter<W> {
 
             match self.byte_order {
                 ByteOrder::BigEndian => {
-                    // Fixed shift calculation for BigEndian
                     self.bits_buffer |= to_insert_val << (64 - self.bits_in_buffer - to_insert);
                 }
                 ByteOrder::LittleEndian => {

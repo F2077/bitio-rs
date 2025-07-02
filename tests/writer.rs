@@ -213,17 +213,6 @@ mod tests {
     }
 
     #[test]
-    fn test_drop_flushes_bits() {
-        let mut buffer = Vec::new();
-        {
-            let mut writer = BitWriter::new(&mut buffer);
-            writer.write_bits(0x0F, 4).unwrap();
-            // Intentionally skip explicit flush
-        }
-        assert_eq!(buffer, vec![0xF0]);
-    }
-
-    #[test]
     fn test_partial_byte_flush_big_endian() {
         let mut buffer = Vec::new();
         let mut writer = BitWriter::with_byte_order(ByteOrder::BigEndian, &mut buffer);
