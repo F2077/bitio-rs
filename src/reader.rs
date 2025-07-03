@@ -26,7 +26,9 @@ impl<R: Read> BitReader<R> {
             bits_in_buffer: 0,
         }
     }
+}
 
+impl<R: Read> BitReader<R> {
     fn put_into_bits_buffer(&mut self, n: usize) -> std::io::Result<()> {
         let bits_needed = n.saturating_sub(self.bits_in_buffer); // 使用 saturating_sub 防止下溢
         let mut bytes_needed = (bits_needed + 7) / 8; // 这是一种常见的 向上取整除法技巧（Ceiling Division Trick），用于计算容纳指定位数所需的最小字节数（当`bits_needed`不是8的倍数时，加上7就会使得总和至少达到下一个8的倍数，从而在除以8时得到正确地向上取整的结果）
