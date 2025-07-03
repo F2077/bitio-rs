@@ -19,7 +19,7 @@ Add the following to your Cargo.toml:
 
 ```
 [dependencies]
-bitio-rs = "0.1.0"
+bitio-rs = "0.1.2"
 ```
 
 ## Quickstart
