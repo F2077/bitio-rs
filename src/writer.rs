@@ -102,7 +102,7 @@ impl<W: Write> Write for BitWriter<W> {
 
 impl<W: Write> Drop for BitWriter<W> {
     fn drop(&mut self) {
-        // 注意这里忽略了错误因为 Drop 里无法 panic
+        // 注意这里显式的忽略了错误因为 Rust 规定 Drop 里不允许 panic，同样的，不能直接 self.flush().unwrap(); 因为 .unwrap() 可能会 panic
         let _ = self.write_residual_partial_byte_to_inner();
         let _ = self.inner.flush();
     }
