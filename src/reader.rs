@@ -103,6 +103,17 @@ impl<R: Read> BitReader<R> {
     }
 }
 
+impl<R: Read> BitReader<R> {
+    /// Returns `true` if at byte boundary (no pending bits)
+    ///
+    /// When true:
+    /// - `read()` operations are permitted
+    /// - Next bit read will start from a fresh byte
+    pub fn is_byte_aligned(&self) -> bool {
+        self.bits_in_buffer % 8 == 0
+    }
+}
+
 impl<R: Read> BitRead for BitReader<R> {
     type Output = u64;
 
@@ -130,7 +141,95 @@ impl<R: Read> BitRead for BitReader<R> {
     }
 }
 
-impl<R: Read> BitPeek for BitReader<R> {
+impl<R: Read> Read for BitReader<R> {
+    /// Reads bytes from the underlying bit stream.
+    ///
+    /// This method behaves differently depending on the bit buffer state:
+    /// - When the bit buffer is **empty** (byte-aligned state), it delegates directly to the inner reader
+    /// - When the bit buffer contains **unconsumed bits** (non-byte-aligned state), it returns an
+    ///   [`UnalignedAccess`](BitReadWriteError::UnalignedAccess) error
+    ///
+    /// # Byte Alignment Requirement
+    /// The fundamental reason for this behavior is **bit stream integrity**. When partially consumed
+    /// bits exist in the buffer:
+    /// 1. Direct byte access would bypass the bit buffer's state tracking
+    /// 2. Reading bytes would consume underlying bytes that contain the *remaining portions* of
+    ///    partially read bit sequences
+    /// 3. This would irreversibly corrupt the bit-level parsing state
+    ///
+    /// # Correct Usage
+    /// To read byte data:
+    /// 1. Use `is_byte_aligned()` to check if you're in byte-aligned state
+    /// 2. For mixed bit/byte reading, always consume all bits in the current byte before reading bytes
+    ///
+    /// # Errors
+    /// Returns `BitReadWriteError::UnalignedAccess` (wrapped in `io::Error`) when called with
+    /// non-empty bit buffer. This prevents:
+    /// - Undefined state transitions
+    /// - Silent data corruption
+    /// - Loss of partially buffered bits
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut written = 0;
+
+        // 1) 如果完全空，直接读取
+        if self.bits_in_buffer == 0 {
+            return self.inner.read(buf);
+        }
+
+        // 2) 如果有残留，但已经是整字节边界（8 的倍数），先拆 buffer
+        if self.bits_in_buffer % 8 == 0 {
+            // 一直拆，直到 buffer 中不再有整字节或 buf 写满
+            while self.bits_in_buffer >= 8 && written < buf.len() {
+                // 每次取 8 位并消费
+                let byte = self.get_from_bits_buffer(8, true)? as u8;
+                buf[written] = byte;
+                written += 1;
+            }
+
+            // 拆完后，buffer 要么空，要么剩 <8 位（此处一定是空，因为 bits_in_buffer%8==0）
+            // 剩余 buf 空间，再走一次底层读以获取后续字节
+            if written < buf.len() {
+                let n = self.inner.read(&mut buf[written..])?;
+                written += n;
+            }
+
+            return Ok(written);
+        }
+
+        // 3) 剩余 bits 不是 8 的倍数 —— 非字节对齐，禁止直接读
+        Err(BitReadWriteError::UnalignedAccess.into())
+    }
+}
+
+// ------------------------------- PeekableBitReader ------------------------------- //
+
+pub struct PeekableBitReader<R: Read> {
+    inner: BitReader<R>,
+}
+
+impl<R: Read> PeekableBitReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self {
+            inner: BitReader::new(inner),
+        }
+    }
+
+    pub fn with_byte_order(inner: R) -> Self {
+        Self {
+            inner: BitReader::with_byte_order(ByteOrder::LittleEndian, inner),
+        }
+    }
+}
+
+impl<R: Read> BitRead for PeekableBitReader<R> {
+    type Output = u64;
+
+    fn read_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
+        self.inner.read_bits(n)
+    }
+}
+
+impl<R: Read> BitPeek for PeekableBitReader<R> {
     type Output = u64;
 
     fn peek_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
@@ -139,21 +238,10 @@ impl<R: Read> BitPeek for BitReader<R> {
         }
 
         // 填充比特缓冲区
-        self.put_into_bits_buffer(n)?;
+        self.inner.put_into_bits_buffer(n)?;
 
         // 从比特缓冲区取 n 比特，但是并不消费掉
-        self.get_from_bits_buffer(n, false)
-    }
-}
-
-impl<R: Read> Read for BitReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        // 如果缓冲区还有剩余比特，则丢弃
-        if self.bits_in_buffer > 0 {
-            self.bits_buffer = 0;
-            self.bits_in_buffer = 0;
-        }
-        self.inner.read(buf)
+        self.inner.get_from_bits_buffer(n, false)
     }
 }
 
@@ -189,24 +277,6 @@ impl<R: Read> BitRead for BulkBitReader<R> {
         while remaining > 0 {
             let take = remaining.min(64);
             chunks.push(self.inner.read_bits(take)?);
-            remaining -= take;
-        }
-        Ok(chunks)
-    }
-}
-
-impl<R: Read> BitPeek for BulkBitReader<R> {
-    type Output = Vec<u64>;
-
-    fn peek_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
-        if n == 0 {
-            return Err(BitReadWriteError::InvalidBitCount(n).into());
-        }
-        let mut remaining = n;
-        let mut chunks = Vec::with_capacity((n + 63) / 64);
-        while remaining > 0 {
-            let take = remaining.min(64);
-            chunks.push(self.inner.peek_bits(take)?);
             remaining -= take;
         }
         Ok(chunks)

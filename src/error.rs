@@ -4,6 +4,7 @@ use std::fmt::Formatter;
 pub enum BitReadWriteError {
     InvalidBitCount(usize),
     UnexpectedEof,
+    UnalignedAccess,
 }
 
 impl std::fmt::Display for BitReadWriteError {
@@ -13,6 +14,9 @@ impl std::fmt::Display for BitReadWriteError {
                 write!(f, "Bit count must be between 1-64, got {}", n)
             }
             BitReadWriteError::UnexpectedEof => write!(f, "Unexpected end of stream"),
+            BitReadWriteError::UnalignedAccess => {
+                write!(f, "Attempted to consume bytes while bits are buffered")
+            }
         }
     }
 }
