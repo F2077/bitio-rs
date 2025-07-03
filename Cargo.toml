@@ -1,6 +1,6 @@
 [package]
 name = "bitio-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "🚀A lightweight Rust library for bit-level I/O: read, peek, write, with both big-endian and little-endian support."
 authors = ["ubizhang@hotmail.com"]
