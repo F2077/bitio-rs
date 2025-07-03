@@ -99,16 +99,6 @@ impl<R: Read> BitReader<R> {
         }
         Ok(bit_value)
     }
-
-    /// Read raw bytes: 自动对齐到下一个字节边界，丢弃所有剩余位
-    pub fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        // 如果缓冲区还有剩余比特，则丢弃
-        if self.bits_in_buffer > 0 {
-            self.bits_buffer = 0;
-            self.bits_in_buffer = 0;
-        }
-        self.inner.read(buf)
-    }
 }
 
 impl<R: Read> BitRead for BitReader<R> {
@@ -136,10 +126,6 @@ impl<R: Read> BitRead for BitReader<R> {
         // 从比特缓冲区取 n 比特，并且消费掉
         self.get_from_bits_buffer(n, true)
     }
-
-    fn read_bool(&mut self) -> std::io::Result<bool> {
-        self.read_bits(1).map(|b| b != 0)
-    }
 }
 
 impl<R: Read> BitPeek for BitReader<R> {
@@ -156,9 +142,16 @@ impl<R: Read> BitPeek for BitReader<R> {
         // 从比特缓冲区取 n 比特，但是并不消费掉
         self.get_from_bits_buffer(n, false)
     }
+}
 
-    fn peek_bool(&mut self) -> std::io::Result<bool> {
-        self.peek_bits(1).map(|b| b != 0)
+impl<R: Read> Read for BitReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // 如果缓冲区还有剩余比特，则丢弃
+        if self.bits_in_buffer > 0 {
+            self.bits_buffer = 0;
+            self.bits_in_buffer = 0;
+        }
+        self.inner.read(buf)
     }
 }
 
@@ -198,12 +191,6 @@ impl<R: Read> BitRead for BulkBitReader<R> {
         }
         Ok(chunks)
     }
-
-    fn read_bool(&mut self) -> std::io::Result<bool> {
-        self.read_bits(1)?
-            .pop()
-            .map_or(Err(BitReaderError::UnexpectedEof.into()), |x| Ok(x != 0))
-    }
 }
 
 impl<R: Read> BitPeek for BulkBitReader<R> {
@@ -221,11 +208,5 @@ impl<R: Read> BitPeek for BulkBitReader<R> {
             remaining -= take;
         }
         Ok(chunks)
-    }
-
-    fn peek_bool(&mut self) -> std::io::Result<bool> {
-        self.peek_bits(1)?
-            .pop()
-            .map_or(Err(BitReaderError::UnexpectedEof.into()), |x| Ok(x != 0))
     }
 }

@@ -3,7 +3,7 @@ mod tests {
     use bitio_rs::byte_order::ByteOrder;
     use bitio_rs::reader::{BitReader, BulkBitReader};
     use bitio_rs::traits::{BitPeek, BitRead};
-    use std::io::Cursor;
+    use std::io::{Cursor, Read};
     // ------------------------------- BitReader tests ------------------------------- //
 
     #[test]
@@ -174,32 +174,6 @@ mod tests {
         assert!(reader.read_bits(0).is_err());
     }
 
-    #[test]
-    fn read_bool_sequence() {
-        let data = [0b1010_0001u8];
-        let mut reader = BitReader::new(Cursor::new(data));
-        // read 3 bools
-        let b1 = reader.read_bool().unwrap();
-        let b2 = reader.read_bool().unwrap();
-        let b3 = reader.read_bool().unwrap();
-        assert_eq!((b1, b2, b3), (true, false, true));
-    }
-
-    #[test]
-    fn peek_bool_and_read_bool_consistency() {
-        let data = [0b1101_1000u8];
-        let mut reader = BitReader::new(Cursor::new(data));
-        // first two bits are 1,1
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.read_bool().unwrap(), false);
-    }
-
     // ------------------------------- BulkBitReader tests ------------------------------- //
 
     #[test]
@@ -222,45 +196,12 @@ mod tests {
     }
 
     #[test]
-    fn bulk_read_bool_sequence() {
-        let data = vec![0b1010_0001u8; 2];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        // read 3 bools
-        let b1 = reader.read_bool().unwrap();
-        let b2 = reader.read_bool().unwrap();
-        let b3 = reader.read_bool().unwrap();
-        assert_eq!((b1, b2, b3), (true, false, true));
-    }
-
-    #[test]
     fn bulk_peek_bits_does_not_consume() {
         let data = vec![0b1111_0000u8; 2];
         let mut reader = BulkBitReader::new(Cursor::new(data));
         let first = reader.peek_bits(12).unwrap();
         let second = reader.read_bits(12).unwrap();
         assert_eq!(first, second);
-    }
-
-    #[test]
-    fn bulk_peek_bool_and_read_bool_consistency() {
-        let data = vec![0b1101_1000u8];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        // first two bits are 1,1
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.read_bool().unwrap(), false);
-    }
-
-    #[test]
-    fn bulk_read_bool_unexpected_eof() {
-        let data = vec![];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        assert!(reader.read_bool().is_err());
     }
 
     // --------------- Mixed byte/bit read tests --------------- //
