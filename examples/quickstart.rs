@@ -1,30 +1,76 @@
 use bitio_rs::byte_order::ByteOrder;
-use bitio_rs::fast::reader::{FastBitReaderBig, FastBitReaderLittle};
 use bitio_rs::reader::BitReader;
-use bitio_rs::traits::BitRead;
-use std::io::Cursor;
+use bitio_rs::traits::{BitRead, BitWrite};
+use bitio_rs::writer::BitWriter;
+use itertools::Itertools;
+use std::io::{Cursor, Read, Result, Write};
 
-fn main() -> std::io::Result<()> {
-    // === Standard BitReader (Big-Endian) ===
-    let data_be = vec![0b1010_1100, 0b1111_0000];
-    let mut reader = BitReader::with_byte_order(ByteOrder::BigEndian, Cursor::new(data_be.clone()));
+fn main() -> Result<()> {
+    // ===== Writing Demonstrations =====
+    println!("--- Writing Demonstrations ---");
 
-    let first = reader.read_bits(3)?; // expect 0b101 = 5
-    println!("Standard BE: first 3 bits = 0b{:03b} ({})", first, first);
+    // Demo 1: 3-bit + 16-bit write
+    let mut buffer1 = Vec::new();
+    {
+        let mut bit_writer = BitWriter::new(Cursor::new(&mut buffer1));
+        bit_writer.write_bits(0b101, 3)?;
+        bit_writer.write_bits(0b1010101111001101, 16)?; // 0xABCD
+        bit_writer.flush()?;
+    }
+    println!(
+        "Demo1: {}",
+        buffer1
+            .iter()
+            .format_with(" ", |b, f| f(&format_args!("{:08b}", b)))
+    );
 
-    let second = reader.read_bits(4)?; // expect 0b0110 = 6
-    println!("Standard BE: next 4 bits = 0b{:04b} ({})", second, second);
+    // Demo 2: Mixed byte/bit write
+    let mut buffer2 = Vec::new();
+    {
+        let mut bit_writer = BitWriter::new(Cursor::new(&mut buffer2));
+        bit_writer.write(&[0b00010001, 0b00100010])?; // 0x11, 0x22
+        bit_writer.write_bits(0b11011, 5)?;
+        bit_writer.write(&[0b00110011])?; // 0x33
+    }
+    println!(
+        "\nDemo2: {}",
+        buffer2
+            .iter()
+            .format_with(" ", |b, f| f(&format_args!("{:08b}", b)))
+    );
 
-    // === FastBitReaderBig (Big-Endian, performance-critical) ===
-    let data_fast = vec![0x12, 0x34, 0x56, 0x78];
-    let mut fast_be = FastBitReaderBig::new(Cursor::new(data_fast.clone()));
-    let value_be = fast_be.read_bits_fast(32)?; // expect 0x12345678
-    println!("Fast BE: 32-bit value = 0x{:08X}", value_be);
+    // ===== Reading Demonstrations =====
+    println!("\n--- Reading Demonstrations ---");
 
-    // === FastBitReaderLittle (Little-Endian, performance-critical) ===
-    let mut fast_le = FastBitReaderLittle::new(Cursor::new(data_fast));
-    let value_le = fast_le.read_bits_fast(32)?; // expect 0x78563412
-    println!("Fast LE: 32-bit value = 0x{:08X}", value_le);
+    // Independent test data
+    let read_data = vec![0b10101010, 0b10111011, 0b11001100];
+
+    // Demo 3: Bit reading
+    let mut bit_reader = BitReader::with_byte_order(ByteOrder::BigEndian, Cursor::new(&read_data));
+
+    let bits3 = bit_reader.read_bits(3)?; // 0b101
+    let bits8 = bit_reader.read_bits(8)?; // 0b01010111
+    println!("Read 3+8 bits: {:03b} {:08b}", bits3, bits8);
+
+    // Demo 4: Byte reading
+    let mut buf = [0u8; 2];
+    let bytes_read = bit_reader.read(&mut buf)?;
+    println!(
+        "Subsequent bytes: {}",
+        &buf[..bytes_read]
+            .iter()
+            .map(|b| format!("{:08b}", b))
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    // Demo 5: Misalignment error
+    let mut error_reader = BitReader::new(Cursor::new(&[0b10101010]));
+    error_reader.read_bits(1)?;
+    match error_reader.read(&mut [0u8; 1]) {
+        Ok(_) => println!("Error: Misaligned read succeeded unexpectedly"),
+        Err(e) => println!("Expected error: {}", e),
+    }
 
     Ok(())
 }

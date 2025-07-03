@@ -10,6 +10,7 @@ repository = "https://github.com/F2077/bitio-rs"
 
 [dev-dependencies]
 criterion = "0.4"
+itertools = "0.10.5"
 
 [features]
 default = []
@@ -18,3 +19,5 @@ bench = []  # 显式声明 bench 特性
 [[bench]]
 name = "read"
 harness = false
+
+[dependencies]
