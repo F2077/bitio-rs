@@ -12,6 +12,7 @@ mod tests {
         writer.write_bits(0b1010, 4).unwrap();
         writer.write_bits(0b1100, 4).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buf.into_inner(), vec![0xAC]);
     }
 
@@ -22,6 +23,7 @@ mod tests {
         writer.write_bits(0b1010, 4).unwrap();
         writer.write_bits(0b1100, 4).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buf.into_inner(), vec![0xCA]);
     }
 
@@ -34,6 +36,7 @@ mod tests {
         writer.write(&data).unwrap();
         writer.write_bits(0b101, 3).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buf.into_inner(), vec![0xFF, 0x11, 0x22, 0x33, 0xA0]);
     }
 
@@ -45,6 +48,7 @@ mod tests {
         let n = writer.write(&data).unwrap();
         writer.flush().unwrap();
         assert_eq!(n, 4);
+        drop(writer);
         assert_eq!(buf.into_inner(), vec![1, 2, 3, 4]);
     }
 
@@ -54,6 +58,7 @@ mod tests {
         let mut writer = BitWriter::new(&mut buf);
         writer.write_bits(0b111, 3).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buf.into_inner(), vec![0xE0]);
     }
 
@@ -67,7 +72,7 @@ mod tests {
         writer.write_bits(0x33, 8).unwrap();
         writer.write_bits(0x14, 5).unwrap();
         writer.flush().unwrap();
-
+        drop(writer);
         assert_eq!(buffer, vec![0xFF, 0x11, 0x22, 0x33, 0xA0]);
     }
 
@@ -81,7 +86,7 @@ mod tests {
         writer.write_bits(0x33, 8).unwrap();
         writer.write_bits(0x14, 5).unwrap();
         writer.flush().unwrap();
-
+        drop(writer);
         assert_eq!(buffer, vec![0xFF, 0x11, 0x22, 0x33, 0x14]);
     }
 
@@ -98,6 +103,7 @@ mod tests {
         let mut writer = BitWriter::with_byte_order(ByteOrder::BigEndian, &mut buffer);
         writer.write_bits(0x0123456789ABCDEF, 64).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
     }
 
@@ -107,6 +113,7 @@ mod tests {
         let mut writer = BitWriter::with_byte_order(ByteOrder::LittleEndian, &mut buffer);
         writer.write_bits(0x0123456789ABCDEF, 64).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01]);
     }
 
@@ -124,6 +131,7 @@ mod tests {
         writer.write_bits(0x7F, 7).unwrap();
         writer.write_bits(0x1, 1).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xFF]);
     }
 
@@ -134,6 +142,7 @@ mod tests {
         writer.write_bits(0x7F, 7).unwrap();
         writer.write_bits(0x1, 1).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xFF]);
     }
 
@@ -145,6 +154,7 @@ mod tests {
         writer.write_bits(0x7F, 7).unwrap();
         writer.write_bits(0x1, 1).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xAA, 0xFF]);
     }
 
@@ -156,6 +166,7 @@ mod tests {
         writer.write_bits(0x7F, 7).unwrap();
         writer.write_bits(0x1, 1).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xAA, 0xFF]);
     }
 
@@ -168,6 +179,7 @@ mod tests {
         writer.write(&[0xAA]).unwrap();
         writer.write_bits(0x0F, 4).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xF0, 0xAA, 0xF0]);
     }
 
@@ -180,6 +192,7 @@ mod tests {
         writer.write(&[0xAA]).unwrap();
         writer.write_bits(0x0F, 4).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0x0F, 0xAA, 0x0F]);
     }
 
@@ -190,6 +203,7 @@ mod tests {
         writer.write_bits(0x0123456789ABCDEF, 64).unwrap();
         writer.write_bits(0x1, 1).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(
             buffer,
             vec![0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x80]
@@ -203,6 +217,7 @@ mod tests {
         writer.write_bits(0x0123456789ABCDEF, 64).unwrap();
         writer.write_bits(0x1, 1).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(
             buffer,
             vec![0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01, 0x01]
@@ -215,6 +230,7 @@ mod tests {
         let mut writer = BitWriter::with_byte_order(ByteOrder::BigEndian, &mut buffer);
         writer.write_bits(0x0F, 4).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0xF0]);
     }
 
@@ -224,6 +240,7 @@ mod tests {
         let mut writer = BitWriter::with_byte_order(ByteOrder::LittleEndian, &mut buffer);
         writer.write_bits(0x0F, 4).unwrap();
         writer.flush().unwrap();
+        drop(writer);
         assert_eq!(buffer, vec![0x0F]);
     }
 }

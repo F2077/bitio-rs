@@ -1,11 +1,12 @@
 use crate::byte_order::ByteOrder;
 use crate::error::BitReadWriteError;
 use crate::traits::BitWrite;
-use std::io::{Result, Write};
+use std::fmt::Debug;
+use std::io::{BufWriter, Result, Write};
 
 pub struct BitWriter<W: Write> {
     byte_order: ByteOrder,
-    inner: W,
+    inner: BufWriter<W>, // 用 BufWriter<W> 能避免频繁的系统调用
 
     bits_buffer: u64,
     bits_in_buffer: usize,
@@ -19,39 +20,48 @@ impl<W: Write> BitWriter<W> {
     pub fn with_byte_order(byte_order: ByteOrder, inner: W) -> Self {
         Self {
             byte_order,
-            inner,
+            inner: BufWriter::new(inner),
             bits_buffer: 0,
             bits_in_buffer: 0,
         }
     }
+}
 
+impl<W: Write> BitWriter<W> {
     /// 将对齐的（完整的）字节写入底层的写入器
     fn write_aligned_bytes_to_inner(&mut self) -> Result<()> {
-        // 注意当比特缓冲区剩余位不够一个字节时，操作就会终止，也就是本操作只会处理对齐的字节
-        while self.bits_in_buffer >= 8 {
+        // 先算出有多少对齐的字节待写入底层
+        // 注意本操作只会处理对齐的字节
+        let count = self.bits_in_buffer / 8;
+        if count == 0 {
+            return Ok(());
+        }
+
+        let mut buf = Vec::with_capacity(count);
+        for _ in 0..count {
             let byte = match self.byte_order {
                 ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8, // 大端序每次都从比特缓冲区左边取 8 位，也就是 1 字节，注意这里没有改变比特缓冲区本身
                 ByteOrder::LittleEndian => self.bits_buffer as u8, // 小端序每次都从比特缓冲区右边取 8 位，也就是 1 字节，注意这里没有改变比特缓冲区本身
             };
-            self.inner.write_all(&[byte])?;
+            buf.push(byte);
 
             match self.byte_order {
                 ByteOrder::BigEndian => {
                     self.bits_buffer <<= 8; // 大端序每次从左边取完比特缓冲区 1 字节后，要从左边消除掉已经取出的 8 位，注意这里改变了比特缓冲区本身
-                    self.bits_in_buffer -= 8; // 更改比特缓冲区位计数
                 }
                 ByteOrder::LittleEndian => {
                     self.bits_buffer >>= 8; // 小端序每次从右边取完比特缓冲区 1 字节后，要从右边消除掉已经取出的 8 位，注意这里改变了比特缓冲区本身
-                    self.bits_in_buffer -= 8; // 更改比特缓冲区位计数
                 }
             }
+            self.bits_in_buffer -= 8; // 更改比特缓冲区位计数
         }
+        self.inner.write_all(&buf)?; // 一次写多个字节能减少潜在的系统调用
         Ok(())
     }
 
-    /// 将比特缓冲区中剩余的不足 1 字节的数据写入底层的写入器，注意，这个函数只能在比特缓冲区中剩余位不足 1 字节（8 比特）时调用才有意思
-    fn write_partial_byte_to_inner(&mut self) -> Result<()> {
-        if self.bits_in_buffer > 0 {
+    /// 将比特缓冲区尾部的不足 1 字节的数据写入底层的写入器，注意，这个函数只能在比特缓冲区中剩余位不足 1 字节（8 比特）时调用才有意义
+    fn write_residual_partial_byte_to_inner(&mut self) -> Result<()> {
+        if self.bits_in_buffer > 0 && self.bits_in_buffer < 8 {
             let byte = match self.byte_order {
                 ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8, // 对于大端序，将比特缓冲区最左边剩余的不足 1 字节的位写入底层的写入器
                 ByteOrder::LittleEndian => self.bits_buffer as u8, // 对于小端序，将比特缓冲区最右边剩余的不足 1 字节的位写入底层的写入器
@@ -70,48 +80,31 @@ impl<W: Write> Write for BitWriter<W> {
         self.write_aligned_bytes_to_inner()?;
 
         if self.bits_in_buffer == 0 {
-            // 如果执行完将比特缓冲区中所有字节都写入底层的写入器后，如果比特缓冲区已经清零（此时已是干净的状态），那么就可以将新来的字节组直接写入底层的写入器
-            self.inner.write(buf)
-        } else {
-            // 如果执行完将比特缓冲区中所有字节都写入底层的写入器后，比特缓冲区中还有剩余的位（也就是未对齐为 1 字节的位，比如 3 比特），那么就需要将新来的字节组中的字节先插入到比特缓冲区中，再从比特缓冲区来写入底层的写入器（也就是比特缓冲区是不可绕过的门禁）
-            let mut processed = 0;
-
-            let mut remaining_bits = self.bits_in_buffer;
-            let free_space_in_bits_buffer = 64 - remaining_bits;
-            let bytes_to_process = (free_space_in_bits_buffer / 8).min(buf.len());
-
-            for &byte in &buf[..bytes_to_process] {
-                match self.byte_order {
-                    ByteOrder::BigEndian => {
-                        self.bits_buffer |= (byte as u64) << (56 - remaining_bits); // 对于大端序，每来一个字节，码到比特缓冲区的左边（高位）
-                    }
-                    ByteOrder::LittleEndian => {
-                        self.bits_buffer |= (byte as u64) << remaining_bits; // 对于小端序，每来一个字节，码到比特缓冲区的右边（低位）
-                    }
-                }
-                processed += 1; // 更新已放入比特缓冲区的字节数
-                remaining_bits += 8; // 更新比特缓冲区已有位数记录值
-            }
-
-            // 一组字节放入比特缓冲区完毕后，更新比特缓冲区计数
-            self.bits_in_buffer += 8 * processed;
-
-            // 一组字节放入比特缓冲区完毕后，将对齐的字节写入底层写入器
-            self.write_aligned_bytes_to_inner()?;
-
-            // 如果经过上述操作后还有剩余的字节组等待处理（也就是新来的字节组比比特缓冲区可用空间要大），那么就直接写入底层写入器
-            if processed < buf.len() {
-                self.inner.write_all(&buf[processed..])?;
-                processed = buf.len();
-            }
-
-            Ok(processed)
+            // 如果执行完将比特缓冲区中所有对齐字节都写入底层的写入器后，如果比特缓冲区已经清零（此时已是干净的状态），那么就可以将新来的字节组直接写入底层的写入器（高速）
+            self.inner.write(buf)?;
+            return Ok(buf.len());
         }
+
+        // 如果执行完将比特缓冲区中所有对齐字节都写入底层的写入器后，比特缓冲区中还有剩余的位（也就是未对齐为 1 字节的位，比如 3 比特），那么就需要将字节组的每个字节都执行 “比特写”（在这个过程中实际上是先将所有自己组的字节都写到比特缓冲区然后由后续逻辑从比特缓冲区写到底层写入器，也就是不允许绕过比特缓冲区） 这样才能保证底层写入器是无空隙的（这样速度较字节组直写要慢，但是我们的底层写入器保证是 BufWriter 因此不会慢太多）
+        for &b in buf {
+            self.write_bits(b as u64, 8)?;
+        }
+
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.write_partial_byte_to_inner()?;
+        // 注意冲刷操作一定要把比特缓冲区的残尾字节写入底层写入器，否则底层写入器就少尾部数据了
+        self.write_residual_partial_byte_to_inner()?;
         self.inner.flush()
+    }
+}
+
+impl<W: Write> Drop for BitWriter<W> {
+    fn drop(&mut self) {
+        // 注意这里忽略了错误因为 Drop 里无法 panic
+        let _ = self.write_residual_partial_byte_to_inner();
+        let _ = self.inner.flush();
     }
 }
 
@@ -150,7 +143,7 @@ impl<W: Write> BitWrite for BitWriter<W> {
 
             // 每凑够（包括大于的情况）1 字节就触发一次写入底层写入器的操作
             if self.bits_in_buffer >= 8 || remaining == 0 {
-                self.write_aligned_bytes_to_inner()?;
+                self.write_aligned_bytes_to_inner()?; // 注意只能将对其的部分写入底层写入器，如果将未对齐的也写入了，后续再有新的字节组过来时，底层写入器就会因为本次写入了部分字节后出现位的断档
             }
         }
 
