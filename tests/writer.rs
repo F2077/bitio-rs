@@ -89,10 +89,7 @@ mod tests {
     fn test_write_zero_bits() {
         let mut buffer = Vec::new();
         let mut writer = BitWriter::new(&mut buffer);
-        writer.write_bits(0x1234, 0).unwrap();
-        writer.write(&[0xAA]).unwrap();
-        writer.flush().unwrap();
-        assert_eq!(buffer, vec![0xAA]);
+        assert!(writer.write_bits(0x1234, 0).is_err());
     }
 
     #[test]

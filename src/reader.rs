@@ -1,5 +1,5 @@
 use crate::byte_order::ByteOrder;
-use crate::error::BitReaderError;
+use crate::error::BitReadWriteError;
 use crate::traits::{BitPeek, BitRead};
 use std::io::{BufReader, Read};
 
@@ -38,7 +38,7 @@ impl<R: Read> BitReader<R> {
             let mut buf = [0u8; 8]; // 注意这里没有用 vector（堆上分配） 而是使用了栈上分配数组，这是一个性能优化
             let slice = &mut buf[..bytes_needed];
             if self.inner.read(slice)? < bytes_needed {
-                return Err(BitReaderError::UnexpectedEof.into());
+                return Err(BitReadWriteError::UnexpectedEof.into());
             };
             for &mut b in slice {
                 // 所谓低地址就是如果顺序的将一块字流读取出来，首个字节索引是 0，第二个字节索引是 1，以此类推，0 就是低地址，也就是最读到的（索引最大的那个）必然是高地址
@@ -117,7 +117,7 @@ impl<R: Read> BitRead for BitReader<R> {
     fn read_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
         // 校验 n
         if n == 0 || n > 64 {
-            return Err(BitReaderError::InvalidBitCount(n).into());
+            return Err(BitReadWriteError::InvalidBitCount(n).into());
         }
 
         // 填充比特缓冲区
@@ -133,7 +133,7 @@ impl<R: Read> BitPeek for BitReader<R> {
 
     fn peek_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
         if n == 0 || n > 64 {
-            return Err(BitReaderError::InvalidBitCount(n).into());
+            return Err(BitReadWriteError::InvalidBitCount(n).into());
         }
 
         // 填充比特缓冲区
@@ -180,7 +180,7 @@ impl<R: Read> BitRead for BulkBitReader<R> {
 
     fn read_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
         if n == 0 {
-            return Err(BitReaderError::InvalidBitCount(n).into());
+            return Err(BitReadWriteError::InvalidBitCount(n).into());
         }
         let mut remaining = n;
         let mut chunks = Vec::with_capacity((n + 63) / 64);
@@ -198,7 +198,7 @@ impl<R: Read> BitPeek for BulkBitReader<R> {
 
     fn peek_bits(&mut self, n: usize) -> std::io::Result<Self::Output> {
         if n == 0 {
-            return Err(BitReaderError::InvalidBitCount(n).into());
+            return Err(BitReadWriteError::InvalidBitCount(n).into());
         }
         let mut remaining = n;
         let mut chunks = Vec::with_capacity((n + 63) / 64);

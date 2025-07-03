@@ -1,26 +1,26 @@
 use std::fmt::Formatter;
 
 #[derive(Debug)]
-pub enum BitReaderError {
+pub enum BitReadWriteError {
     InvalidBitCount(usize),
     UnexpectedEof,
 }
 
-impl std::fmt::Display for BitReaderError {
+impl std::fmt::Display for BitReadWriteError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            BitReaderError::InvalidBitCount(n) => {
+            BitReadWriteError::InvalidBitCount(n) => {
                 write!(f, "Bit count must be between 1-64, got {}", n)
             }
-            BitReaderError::UnexpectedEof => write!(f, "Unexpected end of stream"),
+            BitReadWriteError::UnexpectedEof => write!(f, "Unexpected end of stream"),
         }
     }
 }
 
-impl std::error::Error for BitReaderError {}
+impl std::error::Error for BitReadWriteError {}
 
-impl From<BitReaderError> for std::io::Error {
-    fn from(e: BitReaderError) -> Self {
+impl From<BitReadWriteError> for std::io::Error {
+    fn from(e: BitReadWriteError) -> Self {
         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
     }
 }
