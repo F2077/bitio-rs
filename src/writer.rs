@@ -1,7 +1,6 @@
 use crate::byte_order::ByteOrder;
 use crate::error::BitReadWriteError;
 use crate::traits::BitWrite;
-use std::fmt::Debug;
 use std::io::{BufWriter, Result, Write};
 
 pub struct BitWriter<W: Write> {
