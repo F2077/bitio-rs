@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use bitio_rs::byte_order::ByteOrder;
-    use bitio_rs::reader::{BitReader, BulkBitReader};
+    use bitio_rs::reader::{BitReader, BulkBitReader, PeekableBitReader};
     use bitio_rs::traits::{BitPeek, BitRead};
-    use std::io::Cursor;
+    use std::io::{Cursor, ErrorKind, Read};
     // ------------------------------- BitReader tests ------------------------------- //
 
     #[test]
@@ -46,9 +46,48 @@ mod tests {
     }
 
     #[test]
+    fn test_big_endian_cross_bytes_read() {
+        let data = [
+            0b0000_0001,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1100_1100,
+            0b1100_1100,
+            0b0000_0001,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1100_1100,
+            0b1100_1100,
+            0b0000_0001,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1000_0000,
+            0b1100_1100,
+            0b1100_1100,
+        ]; // 字节0: 0x01, 字节1: 0x80
+        let mut reader = BitReader::with_byte_order(ByteOrder::BigEndian, Cursor::new(data));
+        assert_eq!(
+            reader.read_bits(64).unwrap(),
+            0b00000001_10000000_10000000_10000000_10000000_10000000_11001100_11001100
+        ); // 字节0的位0
+        assert_eq!(reader.read_bits(8).unwrap(), 0b0000_0001);
+        assert_eq!(reader.read_bits(1).unwrap(), 0b1);
+        assert_eq!(reader.read_bits(1).unwrap(), 0b0);
+        assert_eq!(reader.read_bits(1).unwrap(), 0b0);
+    }
+
+    #[test]
     fn test_peek_bits() {
         let data = [0b1100_1111];
-        let mut reader = BitReader::new(Cursor::new(data));
+        let mut reader = PeekableBitReader::new(Cursor::new(data));
         assert_eq!(reader.peek_bits(4).unwrap(), 0b1100); // 查看前4位
         assert_eq!(reader.read_bits(4).unwrap(), 0b1100); // 实际读取（应相同）
         assert_eq!(reader.peek_bits(4).unwrap(), 0b1111); // 查看接下来的4位
@@ -135,32 +174,6 @@ mod tests {
         assert!(reader.read_bits(0).is_err());
     }
 
-    #[test]
-    fn read_bool_sequence() {
-        let data = [0b1010_0001u8];
-        let mut reader = BitReader::new(Cursor::new(data));
-        // read 3 bools
-        let b1 = reader.read_bool().unwrap();
-        let b2 = reader.read_bool().unwrap();
-        let b3 = reader.read_bool().unwrap();
-        assert_eq!((b1, b2, b3), (true, false, true));
-    }
-
-    #[test]
-    fn peek_bool_and_read_bool_consistency() {
-        let data = [0b1101_1000u8];
-        let mut reader = BitReader::new(Cursor::new(data));
-        // first two bits are 1,1
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.read_bool().unwrap(), false);
-    }
-
     // ------------------------------- BulkBitReader tests ------------------------------- //
 
     #[test]
@@ -182,45 +195,85 @@ mod tests {
         assert_eq!(chunks[1] & 0xFFFF, 0xFFFF);
     }
 
+    // --------------- Mixed byte/bit read tests --------------- //
+
     #[test]
-    fn bulk_read_bool_sequence() {
-        let data = vec![0b1010_0001u8; 2];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        // read 3 bools
-        let b1 = reader.read_bool().unwrap();
-        let b2 = reader.read_bool().unwrap();
-        let b3 = reader.read_bool().unwrap();
-        assert_eq!((b1, b2, b3), (true, false, true));
+    fn test_byte_then_bit() {
+        let data = vec![0xAA, 0b10110011, 0xFF];
+        let mut reader = BitReader::new(Cursor::new(data));
+        // Read one full byte
+        let mut byte = [0u8; 1];
+        assert_eq!(reader.read(&mut byte).unwrap(), 1);
+        assert_eq!(byte[0], 0xAA);
+        // Now read 4 bits from next byte
+        assert_eq!(reader.read_bits(4).unwrap(), 0b1011);
+        // And then remaining 4 bits
+        assert_eq!(reader.read_bits(4).unwrap(), 0b0011);
+        // Then next aligned byte
+        let mut b2 = [0u8; 1];
+        assert_eq!(reader.read(&mut b2).unwrap(), 1);
+        assert_eq!(b2[0], 0xFF);
     }
 
     #[test]
-    fn bulk_peek_bits_does_not_consume() {
-        let data = vec![0b1111_0000u8; 2];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        let first = reader.peek_bits(12).unwrap();
-        let second = reader.read_bits(12).unwrap();
-        assert_eq!(first, second);
+    fn test_byte_aligned_read() {
+        // 测试在没有任何位读取的情况下，直接读取字节
+        let data = vec![0xAA, 0xBB, 0xCC];
+        let mut reader = BitReader::new(Cursor::new(data.clone()));
+        let mut buf = [0u8; 3];
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(buf, [0xAA, 0xBB, 0xCC]);
     }
 
     #[test]
-    fn bulk_peek_bool_and_read_bool_consistency() {
-        let data = vec![0b1101_1000u8];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        // first two bits are 1,1
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), true);
-        assert_eq!(reader.read_bool().unwrap(), true);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.peek_bool().unwrap(), false);
-        assert_eq!(reader.read_bool().unwrap(), false);
+    fn test_read_bits_then_error_on_unaligned_read() {
+        // 先读 4 位，剩余 4 位未对齐，read 应该返回错误
+        let data = vec![0b1010_1111, 0x11];
+        let mut reader = BitReader::new(Cursor::new(data));
+        // 读高 4 位 => 0b1010
+        let bits = reader.read_bits(4).unwrap();
+        assert_eq!(bits, 0b1010);
+
+        // 此时 bits_in_buffer = 4，非整字节对齐
+        let mut buf = [0u8; 1];
+        let err = reader.read(&mut buf).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Other); // 包装后的 UnalignedAccess
     }
 
     #[test]
-    fn bulk_read_bool_unexpected_eof() {
-        let data = vec![];
-        let mut reader = BulkBitReader::new(Cursor::new(data));
-        assert!(reader.read_bool().is_err());
+    fn test_partial_buffer_consumption() {
+        // 如果内部缓冲中有整字节，也应先拆出来
+        let data = vec![0xAB, 0xCD];
+
+        // 这里我们先借助 read_bits 读满 8 位，留在 buffer
+        let mut reader = BitReader::new(Cursor::new(data.clone()));
+        let b = reader.read_bits(8).unwrap() as u8;
+        assert_eq!(b, 0xAB);
+
+        // 此时 bits_in_buffer == 0，因为刚好读完一个字节
+        // 再 read_bytes 应直接从 inner 读剩余
+        let mut buf = [0u8; 1];
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(buf, [0xCD]);
+    }
+
+    #[test]
+    fn test_read_bytes_auto_align_and_consume_buffer() {
+        // 测试在缓冲区有完整字节时，read 会先拆 buffer 中的字节
+        let data = vec![0xFE, 0xEF, 0x01];
+        let mut reader = BitReader::new(Cursor::new(data));
+
+        // 先读 16 位，这会把 0xFE,0xEF 都装入 buffer
+        let chunks = reader.read_bits(16).unwrap();
+        assert_eq!(chunks, 0xFEEF);
+
+        // buffer 中 bits_in_buffer == 0 (已经消费完)
+        // 读剩余字节
+        let mut buf = [0u8; 1];
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(buf, [0x01]);
     }
 }

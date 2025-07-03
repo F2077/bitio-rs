@@ -1,4 +1,4 @@
-use crate::error::BitReaderError;
+use crate::error::BitReadWriteError;
 use std::io::{Read, Result};
 
 /// Ultra-fast bit reader for BigEndian streams (~18x faster than standard)
@@ -34,7 +34,7 @@ impl<R: Read> FastBitReaderBig<R> {
     #[inline(always)]
     pub fn read_bits_fast(&mut self, n: usize) -> Result<u64> {
         if n == 0 || n > 64 {
-            return Err(BitReaderError::InvalidBitCount(n).into());
+            return Err(BitReadWriteError::InvalidBitCount(n).into());
         }
 
         while self.bits_available < n {
@@ -103,7 +103,7 @@ impl<R: Read> FastBitReaderLittle<R> {
     #[inline(always)]
     pub fn read_bits_fast(&mut self, n: usize) -> Result<u64> {
         if n == 0 || n > 64 {
-            return Err(BitReaderError::InvalidBitCount(n).into());
+            return Err(BitReadWriteError::InvalidBitCount(n).into());
         }
 
         while self.bits_available < n {
