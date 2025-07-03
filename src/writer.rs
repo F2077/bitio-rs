@@ -5,7 +5,7 @@ use std::io::{BufWriter, Result, Write};
 
 pub struct BitWriter<W: Write> {
     byte_order: ByteOrder,
-    inner: BufWriter<W>, // 用 BufWriter<W> 能避免频繁的系统调用
+    inner: Option<BufWriter<W>>, // 用 BufWriter<W> 能避免频繁的系统调用
 
     bits_buffer: u64,
     bits_in_buffer: usize,
@@ -19,10 +19,18 @@ impl<W: Write> BitWriter<W> {
     pub fn with_byte_order(byte_order: ByteOrder, inner: W) -> Self {
         Self {
             byte_order,
-            inner: BufWriter::new(inner),
+            inner: Option::from(BufWriter::new(inner)),
             bits_buffer: 0,
             bits_in_buffer: 0,
         }
+    }
+}
+
+impl<W: Write> BitWriter<W> {
+    fn inner_mut(&mut self) -> Result<&mut BufWriter<W>> {
+        self.inner
+            .as_mut()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "inner writer is gone"))
     }
 }
 
@@ -54,7 +62,7 @@ impl<W: Write> BitWriter<W> {
             }
             self.bits_in_buffer -= 8; // 更改比特缓冲区位计数
         }
-        self.inner.write_all(&buf)?; // 一次写多个字节能减少潜在的系统调用
+        self.inner_mut()?.write_all(&buf)?; // 一次写多个字节能减少潜在的系统调用
         Ok(())
     }
 
@@ -65,11 +73,27 @@ impl<W: Write> BitWriter<W> {
                 ByteOrder::BigEndian => (self.bits_buffer >> 56) as u8, // 对于大端序，将比特缓冲区最左边剩余的不足 1 字节的位写入底层的写入器
                 ByteOrder::LittleEndian => self.bits_buffer as u8, // 对于小端序，将比特缓冲区最右边剩余的不足 1 字节的位写入底层的写入器
             };
-            self.inner.write_all(&[byte])?;
+            self.inner_mut()?.write_all(&[byte])?;
             self.bits_buffer = 0; // 清零比特缓冲区
             self.bits_in_buffer = 0; // 清零比特缓冲区计数
         }
         Ok(())
+    }
+}
+
+impl<W: Write> BitWriter<W> {
+    pub fn into_inner(mut self) -> Result<W> {
+        self.write_residual_partial_byte_to_inner()?;
+        if let Some(mut inner) = self.inner.take() {
+            inner.flush()?;
+            inner.into_inner().map_err(|e| e.into_error())
+        } else {
+            // 如果已经被取走了，返回错误或自定义错误
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "inner already taken",
+            ))
+        }
     }
 }
 
@@ -80,7 +104,7 @@ impl<W: Write> Write for BitWriter<W> {
 
         if self.bits_in_buffer == 0 {
             // 如果执行完将比特缓冲区中所有对齐字节都写入底层的写入器后，如果比特缓冲区已经清零（此时已是干净的状态），那么就可以将新来的字节组直接写入底层的写入器（高速）
-            self.inner.write(buf)?;
+            self.inner_mut()?.write(buf)?;
             return Ok(buf.len());
         }
 
@@ -95,15 +119,21 @@ impl<W: Write> Write for BitWriter<W> {
     fn flush(&mut self) -> Result<()> {
         // 注意冲刷操作一定要把比特缓冲区的残尾字节写入底层写入器，否则底层写入器就少尾部数据了
         self.write_residual_partial_byte_to_inner()?;
-        self.inner.flush()
+        self.inner_mut()?.flush()
     }
 }
 
 impl<W: Write> Drop for BitWriter<W> {
     fn drop(&mut self) {
+        // 先尝试写入残余的比特数据，忽略错误
         // 注意这里显式的忽略了错误因为 Rust 规定 Drop 里不允许 panic，同样的，不能直接 self.flush().unwrap(); 因为 .unwrap() 可能会 panic
         let _ = self.write_residual_partial_byte_to_inner();
-        let _ = self.inner.flush();
+
+        // 访问 inner，如果存在则 flush，忽略错误
+        if let Some(ref mut inner) = self.inner {
+            let _ = inner.flush();
+        }
+        // 如果 inner 是 None，说明已经被 take() 过了，直接跳过即可
     }
 }
 
